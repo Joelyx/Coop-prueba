@@ -23,9 +23,13 @@ public class SubmarineSonar : MonoBehaviour
     
     [Header("Visual Effects")]
     public LineRenderer sonarConeRenderer;
+    public LineRenderer sweepLineRenderer; // Sweepline animation
     public ParticleSystem pingEffect;
     public Color normalPingColor = Color.cyan;
     public Color detectionPingColor = Color.red;
+    public Color sweepLineColor = Color.green;
+    public float sweepSpeed = 45f; // Degrees per second
+    public float fadeOutDuration = 1.5f; // Fade duration for contacts
     
     [Header("Debug")]
     public bool enableDebugLogs = true; // NEW: Enable debug logging
@@ -37,10 +41,52 @@ public class SubmarineSonar : MonoBehaviour
     // Private variables
     private float lastPingTime = -999f;
     private Transform submarineTransform;
+    private bool isSweeping = false;
+    private float currentSweepAngle = 0f;
+    private List<SonarContact> activeContacts = new List<SonarContact>();
+    private List<SonarContactRenderer> contactRenderers = new List<SonarContactRenderer>();
     
     // Events
     public System.Action<List<SonarContact>> OnSonarPing;
     public System.Action<SonarContact> OnContactDetected;
+
+    // Helper class for individual contact rendering
+    [System.Serializable]
+    private class SonarContactRenderer
+    {
+        public SonarContact contact;
+        public GameObject visualObject;
+        public Renderer renderer;
+        public float fadeStartTime;
+        public bool isFading;
+        
+        public SonarContactRenderer(SonarContact sonarContact)
+        {
+            contact = sonarContact;
+            fadeStartTime = -1f;
+            isFading = false;
+        }
+        
+        public void StartFade()
+        {
+            if (!isFading)
+            {
+                fadeStartTime = Time.time;
+                isFading = true;
+            }
+        }
+        
+        public float GetFadeProgress(float fadeDuration)
+        {
+            if (!isFading) return 0f;
+            return Mathf.Clamp01((Time.time - fadeStartTime) / fadeDuration);
+        }
+        
+        public bool IsCompletelyFaded(float fadeDuration)
+        {
+            return isFading && (Time.time - fadeStartTime) >= fadeDuration;
+        }
+    }
     
     [System.Serializable]
     public struct SonarContact
@@ -50,6 +96,8 @@ public class SubmarineSonar : MonoBehaviour
         public float distance;
         public float bearing; // Angle relative to submarine forward
         public string contactType;
+        public float detectionTime; // Time when this contact was detected by sweepline
+        public bool isVisible; // Whether this contact is currently visible
         
         public SonarContact(GameObject obj, Vector3 pos, Transform submarineTransform)
         {
@@ -61,6 +109,8 @@ public class SubmarineSonar : MonoBehaviour
             bearing = Vector3.SignedAngle(submarineTransform.forward, directionToTarget, Vector3.up);
             
             contactType = DetermineContactType(obj);
+            detectionTime = -1f; // Not yet detected by sweepline
+            isVisible = false;
         }
         
         private static string DetermineContactType(GameObject obj)
@@ -140,6 +190,18 @@ public class SubmarineSonar : MonoBehaviour
             sonarConeRenderer.endWidth = maxRange * Mathf.Tan(coneAngle * 0.5f * Mathf.Deg2Rad) * 2f;
             sonarConeRenderer.useWorldSpace = true;
         }
+        
+        // Setup sweepline renderer
+        if (sweepLineRenderer != null)
+        {
+            sweepLineRenderer.enabled = false;
+            sweepLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
+            sweepLineRenderer.material.color = sweepLineColor;
+            sweepLineRenderer.startWidth = 0.2f;
+            sweepLineRenderer.endWidth = 0.2f;
+            sweepLineRenderer.useWorldSpace = true;
+            sweepLineRenderer.positionCount = 2;
+        }
     }
     
     // NEW: Add context menu for easy testing
@@ -170,6 +232,7 @@ public class SubmarineSonar : MonoBehaviour
         // Perform detection
         List<SonarContact> detections = PerformSonarScan();
         LastDetections = detections;
+        activeContacts = new List<SonarContact>(detections);
         
         if (enableDebugLogs)
             Debug.Log($"[SONAR] Scan complete. Found {detections.Count} contacts");
@@ -177,19 +240,11 @@ public class SubmarineSonar : MonoBehaviour
         // Play audio
         PlayPingAudio(detections);
         
-        // Show visual effects
-        ShowPingEffect(detections.Count > 0);
+        // Start sweep animation
+        StartSweepAnimation();
         
         // Notify listeners
         OnSonarPing?.Invoke(detections);
-        
-        // Individual contact notifications
-        foreach (var contact in detections)
-        {
-            OnContactDetected?.Invoke(contact);
-            if (enableDebugLogs)
-                Debug.Log($"[SONAR] CONTACT: {contact.contactType} at {contact.position}, Distance: {contact.distance:F1}m, Bearing: {contact.bearing:F1}°");
-        }
     }
     
     private List<SonarContact> PerformSonarScan()
@@ -232,7 +287,7 @@ public class SubmarineSonar : MonoBehaviour
                     bool isDuplicate = false;
                     foreach (var existingContact in contacts)
                     {
-                        if (Vector3.Distance(existingContact.position, hit.point) < 3f) // Within 3m
+                        if (Vector3.Distance(existingContact.position, hit.point) < 1f) // Within 3m
                         {
                             isDuplicate = true;
                             break;
@@ -264,6 +319,225 @@ public class SubmarineSonar : MonoBehaviour
         return contacts;
     }
     
+    private void StartSweepAnimation()
+    {
+        if (isSweeping) return;
+        
+        isSweeping = true;
+        currentSweepAngle = -coneAngle * 0.5f;
+        
+        // Clear previous contact renderers
+        CleanupContactRenderers();
+        
+        // Create visual objects for all contacts (initially invisible)
+        foreach (var contact in activeContacts)
+        {
+            CreateContactVisual(contact);
+        }
+        
+        // Show sweepline
+        if (sweepLineRenderer != null)
+        {
+            sweepLineRenderer.enabled = true;
+        }
+        
+        if (enableDebugLogs)
+            Debug.Log($"[SONAR] Started sweep animation with {activeContacts.Count} contacts");
+    }
+    
+    private void Update()
+    {
+        if (isSweeping)
+        {
+            UpdateSweepAnimation();
+        }
+        
+        UpdateContactFades();
+    }
+    
+    private void UpdateSweepAnimation()
+    {
+        // Move sweepline
+        currentSweepAngle += sweepSpeed * Time.deltaTime;
+        
+        // Update sweepline visual
+        UpdateSweepLineVisual();
+        
+        // Check which contacts should be revealed
+        for (int i = 0; i < activeContacts.Count; i++)
+        {
+            var contact = activeContacts[i];
+            if (!contact.isVisible && contact.bearing <= currentSweepAngle)
+            {
+                // Reveal this contact
+                contact.isVisible = true;
+                contact.detectionTime = Time.time;
+                activeContacts[i] = contact;
+                
+                // Make visual object visible
+                RevealContact(contact);
+                
+                // Notify listeners
+                OnContactDetected?.Invoke(contact);
+                
+                if (enableDebugLogs)
+                    Debug.Log($"[SONAR] CONTACT REVEALED: {contact.contactType} at bearing {contact.bearing:F1}°");
+            }
+        }
+        
+        // Check if sweep is complete
+        if (currentSweepAngle >= coneAngle * 0.5f)
+        {
+            CompleteSweep();
+        }
+    }
+    
+    private void UpdateSweepLineVisual()
+    {
+        if (sweepLineRenderer == null) return;
+        
+        Vector3 sweepDirection = Quaternion.AngleAxis(currentSweepAngle, transform.up) * transform.forward;
+        Vector3 origin = transform.position;
+        Vector3 endPoint = origin + sweepDirection * maxRange;
+        
+        sweepLineRenderer.SetPosition(0, origin);
+        sweepLineRenderer.SetPosition(1, endPoint);
+    }
+    
+    private void CompleteSweep()
+    {
+        isSweeping = false;
+        
+        // Hide sweepline
+        if (sweepLineRenderer != null)
+        {
+            sweepLineRenderer.enabled = false;
+        }
+        
+        // Start fade timers for all visible contacts
+        foreach (var contactRenderer in contactRenderers)
+        {
+            if (contactRenderer.contact.isVisible)
+            {
+                contactRenderer.StartFade();
+            }
+        }
+        
+        if (enableDebugLogs)
+            Debug.Log("[SONAR] Sweep animation completed");
+    }
+    
+    private void UpdateContactFades()
+    {
+        for (int i = contactRenderers.Count - 1; i >= 0; i--)
+        {
+            var contactRenderer = contactRenderers[i];
+            
+            if (contactRenderer.isFading)
+            {
+                float fadeProgress = contactRenderer.GetFadeProgress(fadeOutDuration);
+                
+                // Update visual alpha
+                if (contactRenderer.renderer != null)
+                {
+                    var material = contactRenderer.renderer.material;
+                    var color = material.color;
+                    color.a = 1f - fadeProgress;
+                    material.color = color;
+                }
+                
+                // Remove if completely faded
+                if (contactRenderer.IsCompletelyFaded(fadeOutDuration))
+                {
+                    if (contactRenderer.visualObject != null)
+                    {
+                        DestroyImmediate(contactRenderer.visualObject);
+                    }
+                    contactRenderers.RemoveAt(i);
+                }
+            }
+        }
+    }
+    
+    private void CreateContactVisual(SonarContact contact)
+    {
+        // Create a simple sphere to represent the contact
+        GameObject contactVisual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        contactVisual.name = $"SonarContact_{contact.contactType}";
+        contactVisual.transform.position = contact.position;
+        contactVisual.transform.localScale = Vector3.one * 0.5f;
+        
+        // Setup material
+        var renderer = contactVisual.GetComponent<Renderer>();
+        var material = new Material(Shader.Find("Standard"));
+        material.color = GetContactColor(contact.contactType);
+        renderer.material = material;
+        
+        // Initially invisible
+        var color = material.color;
+        color.a = 0f;
+        material.color = color;
+        contactVisual.SetActive(false);
+        
+        // Create contact renderer
+        var contactRenderer = new SonarContactRenderer(contact);
+        contactRenderer.visualObject = contactVisual;
+        contactRenderer.renderer = renderer;
+        
+        contactRenderers.Add(contactRenderer);
+    }
+    
+    private void RevealContact(SonarContact contact)
+    {
+        var contactRenderer = contactRenderers.Find(cr => 
+            Vector3.Distance(cr.contact.position, contact.position) < 0.1f);
+            
+        if (contactRenderer?.visualObject != null)
+        {
+            contactRenderer.visualObject.SetActive(true);
+            
+            // Make fully visible
+            if (contactRenderer.renderer != null)
+            {
+                var material = contactRenderer.renderer.material;
+                var color = material.color;
+                color.a = 1f;
+                material.color = color;
+            }
+        }
+    }
+    
+    private Color GetContactColor(string contactType)
+    {
+        switch (contactType.ToLower())
+        {
+            case "wall": return Color.red;
+            case "terrain": return Color.yellow;
+            case "rock": return Color.gray;
+            case "coral": return Color.magenta;
+            case "wreck": return Color.cyan;
+            case "submarine": return Color.blue;
+            default: return Color.white;
+        }
+    }
+    
+    private void CleanupContactRenderers()
+    {
+        foreach (var contactRenderer in contactRenderers)
+        {
+            if (contactRenderer.visualObject != null)
+            {
+                DestroyImmediate(contactRenderer.visualObject);
+            }
+        }
+        contactRenderers.Clear();
+    }
+    
+    private void OnDestroy()
+    {
+        CleanupContactRenderers();
+    }
+    
     private void PlayPingAudio(List<SonarContact> detections)
     {
         if (sonarAudioSource == null) return;
@@ -292,55 +566,6 @@ public class SubmarineSonar : MonoBehaviour
         }
     }
     
-    private void ShowPingEffect(bool hasDetections)
-    {
-        // Show particle effect
-        if (pingEffect != null)
-        {
-            var main = pingEffect.main;
-            main.startColor = hasDetections ? detectionPingColor : normalPingColor;
-            pingEffect.Play();
-        }
-        
-        // Show sonar cone briefly
-        if (sonarConeRenderer != null)
-        {
-            StartCoroutine(ShowSonarCone(hasDetections));
-        }
-    }
-    
-    private System.Collections.IEnumerator ShowSonarCone(bool hasDetections)
-    {
-        sonarConeRenderer.material.color = hasDetections ? detectionPingColor : normalPingColor;
-        sonarConeRenderer.enabled = true;
-        
-        // Draw cone lines
-        DrawSonarCone();
-        
-        // Keep visible for a short time
-        yield return new WaitForSeconds(0.5f);
-        
-        sonarConeRenderer.enabled = false;
-    }
-    
-    private void DrawSonarCone()
-    {
-        if (sonarConeRenderer == null) return;
-        
-        int segments = 20;
-        sonarConeRenderer.positionCount = segments + 1;
-        
-        Vector3 origin = transform.position;
-        sonarConeRenderer.SetPosition(0, origin);
-        
-        for (int i = 0; i <= segments; i++)
-        {
-            float angle = (-coneAngle * 0.5f) + (coneAngle * i / segments);
-            Vector3 direction = Quaternion.AngleAxis(angle, transform.up) * transform.forward;
-            Vector3 point = origin + direction * maxRange;
-            sonarConeRenderer.SetPosition(i, point);
-        }
-    }
     
     // Public methods for external control
     public void SetRange(float range)

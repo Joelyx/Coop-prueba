@@ -71,7 +71,7 @@ public class SonarDisplay : MonoBehaviour
     private void Awake()
     {
         // Find sonar system in the scene
-        sonarSystem = FindObjectOfType<SubmarineSonar>();
+        sonarSystem = FindFirstObjectByType<SubmarineSonar>();
         displayCanvas = GetComponent<Canvas>();
         
         SetupDisplay();

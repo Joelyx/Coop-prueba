@@ -55,7 +55,7 @@ public class ConicSonarDisplay : MonoBehaviour
     
     private void Awake()
     {
-        sonarSystem = FindObjectOfType<SubmarineSonar>();
+        sonarSystem = FindFirstObjectByType<SubmarineSonar>();
         displayCanvas = GetComponent<Canvas>();
         
         if (enableDebugLogs)

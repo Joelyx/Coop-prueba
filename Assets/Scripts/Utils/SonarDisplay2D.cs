@@ -15,7 +15,7 @@ public class SonarDisplay2D : MonoBehaviour
     
     void Start()
     {
-        sonar = FindObjectOfType<SubmarineSonar>();
+        sonar = FindFirstObjectByType<SubmarineSonar>();
         
         // Create GUI style
         labelStyle = new GUIStyle();

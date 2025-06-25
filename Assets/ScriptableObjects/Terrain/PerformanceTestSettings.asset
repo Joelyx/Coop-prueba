@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 13c922a97b834be4293aa358f3a335dc, type: 3}
+  m_Name: PerformanceTestSettings
+  m_EditorClassIdentifier: 
+  worldWidth: 2000
+  worldLength: 2000
+  heightScale: 80
+  chunkSize: 128
+  renderDistance: 2
+  navigableHeightThreshold: 0.35
+  minPassageWidth: 25
+  submarineHeight: 12
+  terrainNoise: {fileID: 11400000, guid: 86fd5b02f7d8e5a46b26d805d27dac60, type: 2}
+  detailNoise: {fileID: 0}
+  seafloorMaterial: {fileID: 0}
+  mountainMaterial: {fileID: 0}
+  transitionMaterial: {fileID: 0}
+  useJobSystem: 1
+  useBurstCompiler: 1
+  useGPUInstancing: 1

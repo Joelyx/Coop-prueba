@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 13c922a97b834be4293aa358f3a335dc, type: 3}
+  m_Name: OceanFloorSettings
+  m_EditorClassIdentifier: 
+  worldWidth: 1000
+  worldLength: 1000
+  heightScale: 50
+  chunkSize: 64
+  renderDistance: 4
+  navigableHeightThreshold: 0.4
+  minPassageWidth: 20
+  submarineHeight: 10
+  terrainNoise: {fileID: 11400000, guid: d67b893e126951f4f98be1529811f284, type: 2}
+  detailNoise: {fileID: 11400000, guid: 69d6eef30c17da84897d0d68bef9f9a6, type: 2}
+  seafloorMaterial: {fileID: 0}
+  mountainMaterial: {fileID: 0}
+  transitionMaterial: {fileID: 0}
+  useJobSystem: 1
+  useBurstCompiler: 1
+  useGPUInstancing: 1

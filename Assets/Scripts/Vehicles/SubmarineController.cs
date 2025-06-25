@@ -31,7 +31,6 @@ public class SubmarineController : MonoBehaviour
     
     private Rigidbody rb;
     private Vector3 _currentForce = Vector3.zero;
-    private float currentTorque = 0f;
     
     // Current velocity for smooth movement
     private float _targetForwardVelocity = 0f;
