@@ -39,6 +39,10 @@ public class SubmarineController : MonoBehaviour
     private float _targetAngularVelocity = 0f;
     private float _currentAngularVelocity = 0f;
     
+    // Sonar command tracking to prevent spam
+    private float lastSonarCommandTime = -999f;
+    private const float SONAR_COMMAND_COOLDOWN = 0.5f; // Minimum time between sonar commands
+    
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
@@ -242,9 +246,28 @@ public class SubmarineController : MonoBehaviour
     
     private void ActivateSonar()
     {
+        // Check if enough time has passed since last sonar command
+        if (Time.time - lastSonarCommandTime < SONAR_COMMAND_COOLDOWN)
+        {
+            return;
+        }
+        
         if (sonarSystem != null)
         {
-            sonarSystem.TriggerSonarPing();
+            if (sonarSystem.CanPing)
+            {
+                Debug.Log("[SUBMARINE] Activating sonar...");
+                sonarSystem.TriggerSonarPing();
+                lastSonarCommandTime = Time.time;
+            }
+            else
+            {
+                Debug.Log($"[SUBMARINE] Sonar on cooldown. Remaining: {sonarSystem.GetCooldownRemaining():F1}s");
+            }
+        }
+        else
+        {
+            Debug.LogError("[SUBMARINE] No sonar system assigned!");
         }
     }
     
@@ -256,6 +279,6 @@ public class SubmarineController : MonoBehaviour
     
     public bool CanUseSonar()
     {
-        return sonarSystem != null && sonarSystem.CanPing;
+        return sonarSystem != null && sonarSystem.CanPing && (Time.time - lastSonarCommandTime >= SONAR_COMMAND_COOLDOWN);
     }
 }

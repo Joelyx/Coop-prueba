@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Directional sonar system for submarine
@@ -9,20 +10,25 @@ public class SubmarineSonar : MonoBehaviour
 {
     [Header("Sonar Detection")]
     public float maxRange = 100f;
-    public float coneAngle = 60f; // Total cone angle in degrees
-    public LayerMask detectionLayers = -1;
+    public float coneAngle = 90f; // Total cone angle in degrees
+    public LayerMask wallLayers = 1; // Only detect walls/terrain
     public float pingCooldown = 2f; // Minimum time between pings
+    public int raycastResolution = 32; // Number of rays in the cone
     
     [Header("Audio")]
     public AudioSource sonarAudioSource;
     public AudioClip pingSound;
     public AudioClip detectionSound;
+    public AudioClip structureDetectionSound; // New sound for structure detection
     
     [Header("Visual Effects")]
     public LineRenderer sonarConeRenderer;
     public ParticleSystem pingEffect;
     public Color normalPingColor = Color.cyan;
     public Color detectionPingColor = Color.red;
+    
+    [Header("Debug")]
+    public bool enableDebugLogs = true; // NEW: Enable debug logging
     
     // Properties
     public bool CanPing => Time.time - lastPingTime >= pingCooldown;
@@ -59,11 +65,17 @@ public class SubmarineSonar : MonoBehaviour
         
         private static string DetermineContactType(GameObject obj)
         {
+            // Classify wall/terrain types for better navigation
+            string name = obj.name.ToLower();
+            
+            if (obj.CompareTag("Wall") || name.Contains("wall")) return "Wall";
+            if (obj.CompareTag("Terrain") || name.Contains("terrain") || name.Contains("ground")) return "Terrain";
+            if (name.Contains("rock") || name.Contains("stone")) return "Rock";
+            if (name.Contains("coral") || name.Contains("reef")) return "Coral";
+            if (name.Contains("wreck") || name.Contains("ship")) return "Wreck";
             if (obj.CompareTag("Player")) return "Submarine";
-            if (obj.CompareTag("Enemy")) return "Hostile";
-            if (obj.name.ToLower().Contains("rock")) return "Terrain";
-            if (obj.name.ToLower().Contains("fish")) return "Biological";
-            return "Unknown";
+            
+            return "Obstacle";
         }
     }
     
@@ -77,6 +89,31 @@ public class SubmarineSonar : MonoBehaviour
             
         ConfigureAudioSource();
         SetupVisualEffects();
+        
+        if (enableDebugLogs)
+        {
+            Debug.Log($"[SONAR] Initialized on {gameObject.name}");
+            Debug.Log($"[SONAR] Position: {transform.position}");
+            Debug.Log($"[SONAR] Max Range: {maxRange}");
+            Debug.Log($"[SONAR] Cone Angle: {coneAngle}");
+            Debug.Log($"[SONAR] Detection Layers: {wallLayers.value}");
+        }
+    }
+    
+    private void Start()
+    {
+        if (enableDebugLogs)
+        {
+            // Count potential targets on Start
+            GameObject[] walls = GameObject.FindGameObjectsWithTag("Wall");
+            Debug.Log($"[SONAR] Found {walls.Length} wall objects in scene");
+            
+            foreach (GameObject wall in walls)
+            {
+                float distance = Vector3.Distance(transform.position, wall.transform.position);
+                Debug.Log($"[SONAR] Wall: {wall.name} at distance {distance:F1}m, position {wall.transform.position}");
+            }
+        }
     }
     
     private void ConfigureAudioSource()
@@ -105,18 +142,40 @@ public class SubmarineSonar : MonoBehaviour
         }
     }
     
+    // NEW: Add context menu for easy testing
+    [ContextMenu("Test Sonar Ping")]
+    public void TestSonarFromContextMenu()
+    {
+        Debug.Log("[SONAR] Manual ping triggered from context menu");
+        TriggerSonarPing();
+    }
+    
     public void TriggerSonarPing()
     {
-        if (!CanPing) return;
+        if (enableDebugLogs)
+            Debug.Log($"[SONAR] TriggerSonarPing called. CanPing: {CanPing}");
+            
+        if (!CanPing) 
+        {
+            if (enableDebugLogs)
+                Debug.Log($"[SONAR] Ping blocked by cooldown. Remaining: {GetCooldownRemaining():F1}s");
+            return;
+        }
         
         lastPingTime = Time.time;
+        
+        if (enableDebugLogs)
+            Debug.Log("[SONAR] Starting sonar scan...");
         
         // Perform detection
         List<SonarContact> detections = PerformSonarScan();
         LastDetections = detections;
         
+        if (enableDebugLogs)
+            Debug.Log($"[SONAR] Scan complete. Found {detections.Count} contacts");
+        
         // Play audio
-        PlayPingAudio(detections.Count > 0);
+        PlayPingAudio(detections);
         
         // Show visual effects
         ShowPingEffect(detections.Count > 0);
@@ -128,6 +187,8 @@ public class SubmarineSonar : MonoBehaviour
         foreach (var contact in detections)
         {
             OnContactDetected?.Invoke(contact);
+            if (enableDebugLogs)
+                Debug.Log($"[SONAR] CONTACT: {contact.contactType} at {contact.position}, Distance: {contact.distance:F1}m, Bearing: {contact.bearing:F1}°");
         }
     }
     
@@ -135,44 +196,93 @@ public class SubmarineSonar : MonoBehaviour
     {
         List<SonarContact> contacts = new List<SonarContact>();
         
-        // Get all colliders in range
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, maxRange, detectionLayers);
-        
-        foreach (Collider collider in hitColliders)
+        if (enableDebugLogs)
         {
-            // Skip self
-            if (collider.transform == transform || collider.transform.IsChildOf(transform))
-                continue;
-                
-            Vector3 directionToTarget = collider.transform.position - transform.position;
-            float angleToTarget = Vector3.Angle(transform.forward, directionToTarget);
+            Debug.Log($"[SONAR] Scanning from {transform.position} with {raycastResolution} rays");
+            Debug.Log($"[SONAR] Forward direction: {transform.forward}");
+            Debug.Log($"[SONAR] Using layer mask: {wallLayers.value}");
+        }
+        
+        // Cast multiple rays in a cone pattern to detect walls
+        for (int i = 0; i < raycastResolution; i++)
+        {
+            // Calculate angle for this ray within the cone
+            float angleStep = coneAngle / (raycastResolution - 1);
+            float currentAngle = (-coneAngle * 0.5f) + (i * angleStep);
             
-            // Check if target is within sonar cone
-            if (angleToTarget <= coneAngle * 0.5f)
+            // Calculate ray direction
+            Vector3 rayDirection = Quaternion.AngleAxis(currentAngle, transform.up) * transform.forward;
+            
+            if (enableDebugLogs && i < 3) // Log first few rays to avoid spam
+                Debug.Log($"[SONAR] Ray {i}: angle={currentAngle:F1}°, direction={rayDirection}");
+            
+            // Cast ray to detect walls
+            RaycastHit hit;
+            if (Physics.Raycast(transform.position, rayDirection, out hit, maxRange, wallLayers))
             {
-                // Perform raycast to check line of sight
-                RaycastHit hit;
-                if (Physics.Raycast(transform.position, directionToTarget.normalized, out hit, maxRange, detectionLayers))
+                if (enableDebugLogs && i < 3)
+                    Debug.Log($"[SONAR] Ray {i} HIT: {hit.collider.name} at {hit.point}, distance={hit.distance:F1}m");
+                
+                // Only add if it's a significant wall hit (not too close)
+                if (hit.distance > 2f) // Minimum 2m to avoid detecting submarine itself
                 {
-                    if (hit.collider == collider)
+                    SonarContact contact = new SonarContact(hit.collider.gameObject, hit.point, transform);
+                    
+                    // Check if we already have a contact very close to this position
+                    bool isDuplicate = false;
+                    foreach (var existingContact in contacts)
                     {
-                        SonarContact contact = new SonarContact(collider.gameObject, hit.point, transform);
+                        if (Vector3.Distance(existingContact.position, hit.point) < 3f) // Within 3m
+                        {
+                            isDuplicate = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!isDuplicate)
+                    {
                         contacts.Add(contact);
+                        if (enableDebugLogs)
+                            Debug.Log($"[SONAR] Added contact: {contact.contactType} at {contact.position}");
+                    }
+                    else if (enableDebugLogs)
+                    {
+                        Debug.Log($"[SONAR] Skipped duplicate contact at {hit.point}");
                     }
                 }
+                else if (enableDebugLogs && i < 3)
+                {
+                    Debug.Log($"[SONAR] Ray {i} hit too close: {hit.distance:F1}m < 2m minimum");
+                }
+            }
+            else if (enableDebugLogs && i < 3)
+            {
+                Debug.Log($"[SONAR] Ray {i} MISS: no hit within {maxRange}m");
             }
         }
         
         return contacts;
     }
     
-    private void PlayPingAudio(bool hasDetections)
+    private void PlayPingAudio(List<SonarContact> detections)
     {
         if (sonarAudioSource == null) return;
         
-        if (hasDetections && detectionSound != null)
+        // Check if we have structure detections
+        bool hasStructures = detections.Any(contact => 
+            contact.contactType.ToLower().Contains("wall") ||
+            contact.contactType.ToLower().Contains("terrain") ||
+            contact.contactType.ToLower().Contains("rock") ||
+            contact.contactType.ToLower().Contains("wreck"));
+            
+        if (hasStructures && structureDetectionSound != null)
         {
-            sonarAudioSource.pitch = 1.2f; // Higher pitch for detections
+            sonarAudioSource.pitch = 0.8f; // Lower pitch for structures
+            sonarAudioSource.PlayOneShot(structureDetectionSound);
+        }
+        else if (detections.Count > 0 && detectionSound != null)
+        {
+            sonarAudioSource.pitch = 1.2f; // Higher pitch for other detections
             sonarAudioSource.PlayOneShot(detectionSound);
         }
         else if (pingSound != null)
@@ -247,7 +357,9 @@ public class SubmarineSonar : MonoBehaviour
     
     public void SetDetectionLayers(LayerMask layers)
     {
-        detectionLayers = layers;
+        wallLayers = layers;
+        if (enableDebugLogs)
+            Debug.Log($"[SONAR] Detection layers updated to: {wallLayers.value}");
     }
     
     public float GetCooldownRemaining()
@@ -262,13 +374,32 @@ public class SubmarineSonar : MonoBehaviour
         Gizmos.color = Color.cyan;
         Gizmos.DrawWireSphere(transform.position, maxRange);
         
-        // Draw cone
+        // Draw cone boundaries
         Vector3 leftBoundary = Quaternion.AngleAxis(-coneAngle * 0.5f, transform.up) * transform.forward * maxRange;
         Vector3 rightBoundary = Quaternion.AngleAxis(coneAngle * 0.5f, transform.up) * transform.forward * maxRange;
         
         Gizmos.color = Color.yellow;
         Gizmos.DrawLine(transform.position, transform.position + leftBoundary);
         Gizmos.DrawLine(transform.position, transform.position + rightBoundary);
-        Gizmos.DrawLine(transform.position + leftBoundary, transform.position + rightBoundary);
+        
+        // Draw individual detection rays
+        Gizmos.color = Color.green;
+        for (int i = 0; i < raycastResolution; i++)
+        {
+            float angleStep = coneAngle / (raycastResolution - 1);
+            float currentAngle = (-coneAngle * 0.5f) + (i * angleStep);
+            Vector3 rayDirection = Quaternion.AngleAxis(currentAngle, transform.up) * transform.forward;
+            Gizmos.DrawLine(transform.position, transform.position + rayDirection * maxRange);
+        }
+        
+        // Draw last detected contacts
+        if (Application.isPlaying && LastDetections != null)
+        {
+            Gizmos.color = Color.red;
+            foreach (var contact in LastDetections)
+            {
+                Gizmos.DrawSphere(contact.position, 1f);
+            }
+        }
     }
 }

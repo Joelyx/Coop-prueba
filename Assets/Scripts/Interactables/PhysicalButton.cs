@@ -50,13 +50,13 @@ public class PhysicalButton : MonoBehaviour
             audioSource = gameObject.AddComponent<AudioSource>();
             
         // Find submarine in scene
-        submarineController = FindObjectOfType<SubmarineController>();
+        submarineController = FindFirstObjectByType<SubmarineController>();
         
         // Initialize Input System
         mouse = Mouse.current;
         playerCamera = Camera.main;
         if (playerCamera == null)
-            playerCamera = FindObjectOfType<Camera>();
+            playerCamera = FindFirstObjectByType<Camera>();
     }
     
     private void Start()
