@@ -16,8 +16,8 @@ public class PlayerJump : MonoBehaviour
     public float jumpBufferTime = 0.1f;
     
     [Header("Gravity Modifiers")]
-    public float fallMultiplier = 1.5f;
-    public float lowJumpMultiplier = 2f;
+    public float fallMultiplier = 2.5f;  // Increased for faster falling
+    public float lowJumpMultiplier = 3f;  // Increased for better control when releasing jump early
     
     [Header("Jump Crouch")]
     public float crouchAmount = 0.2f;
@@ -116,16 +116,16 @@ public class PlayerJump : MonoBehaviour
     private void FixedUpdate()
     {
         HandleVariableJump();
-        // Temporarily disable HandleBetterGravity to debug
-        // HandleBetterGravity();
+        HandleBetterGravity();  // Re-enabled for proper jump physics
     }
     
     private void CalculateJumpForces()
     {
         float gravity = Mathf.Abs(Physics.gravity.y);
-        float forceMultiplier = 4f; // Increased from 2f to 4f
-        minJumpForce = Mathf.Sqrt(2f * gravity * minJumpHeight) * rb.mass * forceMultiplier;
-        maxJumpForce = Mathf.Sqrt(2f * gravity * maxJumpHeight) * rb.mass * forceMultiplier;
+        // Reduced multiplier for more realistic jump physics
+        float forceMultiplier = 1.2f;
+        minJumpForce = Mathf.Sqrt(2f * gravity * minJumpHeight) * forceMultiplier;
+        maxJumpForce = Mathf.Sqrt(2f * gravity * maxJumpHeight) * forceMultiplier;
         
         Debug.Log($"Jump forces calculated - Min: {minJumpForce}, Max: {maxJumpForce}, Gravity: {gravity}, Mass: {rb.mass}");
     }
@@ -222,8 +222,11 @@ public class PlayerJump : MonoBehaviour
         targetCrouchOffset = 0f;
         ChargePercent = 0f;
         
+        // Reset Y velocity before jumping to ensure consistent jump height
+        rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+        
         Debug.Log($"Applying jump force: {jumpForce}, Player mass: {rb.mass}, Final force: {Vector3.up * jumpForce}");
-        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+        rb.AddForce(Vector3.up * jumpForce, ForceMode.VelocityChange);
         OnJumpStart?.Invoke();
     }
     

@@ -181,8 +181,15 @@ public class PlayerMovement : MonoBehaviour
         Vector2 input = moveAction.ReadValue<Vector2>();
         Vector3 inputDirection = new Vector3(input.x, 0, input.y).normalized;
         
-        // Use current transform rotation for immediate direction update
+        // Recalculate world direction every physics frame to account for camera rotation
+        // IMPORTANT: This uses the current rotation of the player transform
         Vector3 worldInputDirection = transform.TransformDirection(inputDirection);
+        
+        // Debug rotation updates
+        if (inputDirection.magnitude > 0.1f && Time.frameCount % 30 == 0)
+        {
+            Debug.Log($"Player Rotation: {transform.eulerAngles.y:F2}, Input: {input}, World Direction: {worldInputDirection}");
+        }
         
         bool isSprinting = sprintAction.IsPressed();
         float targetSpeed = isSprinting ? runSpeed : walkSpeed;
@@ -271,6 +278,7 @@ public class PlayerMovement : MonoBehaviour
         Vector2 input = moveAction.ReadValue<Vector2>();
         if (input.magnitude < 0.1f) return;
         
+        // Use current transform rotation for step climbing direction
         Vector3 moveDirection = transform.TransformDirection(new Vector3(input.x, 0, input.y).normalized);
         
         // Check for step in front
