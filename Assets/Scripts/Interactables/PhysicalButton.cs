@@ -224,18 +224,6 @@ public class PhysicalButton : MonoBehaviour
     
     private void HandleButtonPhysicsClick()
     {
-        // Check if player is on top and should press the button
-        if (isPlayerOnTop && !isPressed)
-        {
-            isPressed = true;
-            OnPress();
-        }
-        else if (!isPlayerOnTop && isPressed)
-        {
-            isPressed = false;
-            OnRelease();
-        }
-        
         // Smooth animation to pressed/unpressed position
         Vector3 targetPosition = (isPressed || isPlayerOnTop) ? pressedPosition : originalPosition;
         float speed = 10f;
@@ -366,6 +354,7 @@ public class PhysicalButton : MonoBehaviour
     
     private void ActivateButtonByContact()
     {
+        // Don't activate by contact if already pressed
         if (isPressed) return;
         
         isPressed = true;
@@ -388,6 +377,7 @@ public class PhysicalButton : MonoBehaviour
     
     private void DeactivateButtonByContact()
     {
+        // Only deactivate by contact if currently pressed
         if (!isPressed) return;
         
         isPressed = false;
