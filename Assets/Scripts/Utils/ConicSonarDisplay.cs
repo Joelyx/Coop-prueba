@@ -16,10 +16,13 @@ public class ConicSonarDisplay : MonoBehaviour
     
     [Header("Contact Visualization")]
     public GameObject contactPrefab;
-    public Color wallLineColor = new Color(0f, 1f, 0f, 0.8f);
     public Color terrainContactColor = Color.yellow;
-    public float wallLineWidth = 3f;
-    public float wallConnectionDistance = 25f;
+    
+    [Header("Radar Noise Effect")]
+    public int noisePointsPerContact = 5;
+    public float noiseRadius = 8f;
+    public float noiseIntensity = 0.6f;
+    public float noiseFadeTime = 0.8f;
     
     [Header("Cone Visual Elements")]
     public bool showCenterLine = true;
@@ -42,7 +45,6 @@ public class ConicSonarDisplay : MonoBehaviour
     // Private variables
     private SubmarineSonar sonarSystem;
     private List<GameObject> activeContacts = new List<GameObject>();
-    private List<GameObject> activeWallLines = new List<GameObject>();
     private GameObject coneBackground;
     private GameObject sweepLine;
     private List<GameObject> coneBorders = new List<GameObject>();
@@ -51,7 +53,6 @@ public class ConicSonarDisplay : MonoBehaviour
     
     // Store contacts for progressive reveal
     private List<SubmarineSonar.SonarContact> pendingContacts = new List<SubmarineSonar.SonarContact>();
-    private List<SubmarineSonar.SonarContact> wallContactsToProcess = new List<SubmarineSonar.SonarContact>();
     
     private void Awake()
     {
@@ -233,65 +234,24 @@ public class ConicSonarDisplay : MonoBehaviour
         
         // Store contacts for progressive reveal during sweep
         pendingContacts.Clear();
-        wallContactsToProcess.Clear();
         
         // Filter and store contacts
         var validContacts = detections.Where(contact => 
             Mathf.Abs(contact.bearing) <= coneAngle * 0.5f).ToList();
         
+        // Store all contacts (no separation between walls and others)
         foreach (var contact in validContacts)
         {
-            if (contact.contactType.ToLower().Contains("wall") || 
-                contact.contactType.ToLower().Contains("terrain") ||
-                contact.contactType.ToLower().Contains("rock"))
-            {
-                wallContactsToProcess.Add(contact);
-            }
-            else
-            {
-                pendingContacts.Add(contact);
-            }
+            pendingContacts.Add(contact);
         }
         
-        // Sort contacts by bearing (right to left) for progressive reveal as sweep moves from right to left
+        // Sort contacts by bearing for progressive reveal
         pendingContacts = pendingContacts.OrderByDescending(c => c.bearing).ToList();
-        wallContactsToProcess = wallContactsToProcess.OrderByDescending(c => c.bearing).ToList();
         
         StartSweepAnimation();
         
         if (enableDebugLogs)
             Debug.Log($"[CONIC SONAR DISPLAY] Prepared {validContacts.Count} contacts for progressive reveal");
-    }
-    
-    private void ProcessContactsForCone(List<SubmarineSonar.SonarContact> detections)
-    {
-        // Filter contacts that are within the cone
-        List<SubmarineSonar.SonarContact> validContacts = detections.Where(contact => 
-            Mathf.Abs(contact.bearing) <= coneAngle * 0.5f).ToList();
-        
-        // Separate wall contacts from others
-        List<SubmarineSonar.SonarContact> wallContacts = validContacts.Where(c => 
-            c.contactType.ToLower().Contains("wall") || 
-            c.contactType.ToLower().Contains("terrain") ||
-            c.contactType.ToLower().Contains("rock")).ToList();
-        
-        List<SubmarineSonar.SonarContact> otherContacts = validContacts.Where(c => 
-            !wallContacts.Contains(c)).ToList();
-        
-        // Add other contacts as points
-        foreach (var contact in otherContacts)
-        {
-            AddContactToCone(contact);
-        }
-        
-        // Create wall lines for wall contacts
-        if (wallContacts.Count > 0)
-        {
-            CreateWallLinesInCone(wallContacts);
-        }
-        
-        if (enableDebugLogs)
-            Debug.Log($"[CONIC SONAR DISPLAY] Added {validContacts.Count} valid contacts ({wallContacts.Count} walls, {otherContacts.Count} others)");
     }
     
     private void AddContactToCone(SubmarineSonar.SonarContact contact)
@@ -300,42 +260,75 @@ public class ConicSonarDisplay : MonoBehaviour
         
         Vector2 conePosition = CalculateConePosition(contact);
         
-        GameObject contactUI = Instantiate(contactPrefab, displayPanel);
-        RectTransform contactRect = contactUI.GetComponent<RectTransform>();
-        Image contactImage = contactUI.GetComponent<Image>();
-        
-        if (contactRect != null)
-        {
-            contactRect.anchoredPosition = conePosition;
-        }
-        
-        if (contactImage != null)
-        {
-            contactImage.color = GetContactColor(contact.contactType);
-        }
-        
-        activeContacts.Add(contactUI);
+        // Create radar noise effect instead of single contact
+        CreateRadarNoiseEffect(conePosition, contact);
     }
     
-    private void CreateWallLinesInCone(List<SubmarineSonar.SonarContact> wallContacts)
+    private void CreateRadarNoiseEffect(Vector2 centerPosition, SubmarineSonar.SonarContact contact)
     {
-        // Convert to cone positions
-        List<Vector2> wallPoints = wallContacts.Select(contact => CalculateConePosition(contact)).ToList();
+        Color baseColor = GetContactColor(contact.contactType);
         
-        // Group into segments
-        List<List<Vector2>> wallSegments = GroupPointsIntoSegments(wallPoints);
-        
-        // Create visual lines
-        foreach (var segment in wallSegments)
+        for (int i = 0; i < noisePointsPerContact; i++)
         {
-            if (segment.Count >= 2)
+            GameObject noisePoint = Instantiate(contactPrefab, displayPanel);
+            RectTransform noiseRect = noisePoint.GetComponent<RectTransform>();
+            Image noiseImage = noisePoint.GetComponent<Image>();
+            
+            // Random position around center
+            Vector2 randomOffset = Random.insideUnitCircle * noiseRadius;
+            Vector2 noisePosition = centerPosition + randomOffset;
+            
+            if (noiseRect != null)
             {
-                CreateWallLineSegmentInCone(segment);
+                noiseRect.anchoredPosition = noisePosition;
+                // Random size variation
+                float sizeVariation = Random.Range(0.5f, 1.5f);
+                noiseRect.sizeDelta = noiseRect.sizeDelta * sizeVariation;
             }
-            else if (segment.Count == 1)
+            
+            if (noiseImage != null)
             {
-                CreateSingleWallPointInCone(segment[0]);
+                // Random intensity variation
+                Color noiseColor = baseColor;
+                noiseColor.a = Random.Range(noiseIntensity * 0.3f, noiseIntensity);
+                noiseImage.color = noiseColor;
             }
+            
+            // Add fade animation
+            StartCoroutine(FadeNoisePoint(noisePoint, noiseImage));
+            
+            activeContacts.Add(noisePoint);
+        }
+    }
+    
+    private System.Collections.IEnumerator FadeNoisePoint(GameObject noisePoint, Image noiseImage)
+    {
+        if (noiseImage == null) yield break;
+        
+        Color initialColor = noiseImage.color;
+        float elapsedTime = 0f;
+        
+        while (elapsedTime < noiseFadeTime)
+        {
+            elapsedTime += Time.deltaTime;
+            float alpha = Mathf.Lerp(initialColor.a, 0f, elapsedTime / noiseFadeTime);
+            
+            if (noiseImage != null)
+            {
+                Color currentColor = noiseImage.color;
+                currentColor.a = alpha;
+                noiseImage.color = currentColor;
+            }
+            
+            yield return null;
+        }
+        
+        // Ensure complete fade
+        if (noiseImage != null)
+        {
+            Color finalColor = noiseImage.color;
+            finalColor.a = 0f;
+            noiseImage.color = finalColor;
         }
     }
     
@@ -355,137 +348,6 @@ public class ConicSonarDisplay : MonoBehaviour
         );
         
         return position;
-    }
-    
-    private List<List<Vector2>> GroupPointsIntoSegments(List<Vector2> points)
-    {
-        List<List<Vector2>> segments = new List<List<Vector2>>();
-        List<Vector2> remainingPoints = new List<Vector2>(points);
-        
-        while (remainingPoints.Count > 0)
-        {
-            List<Vector2> currentSegment = new List<Vector2>();
-            Vector2 currentPoint = remainingPoints[0];
-            remainingPoints.RemoveAt(0);
-            currentSegment.Add(currentPoint);
-            
-            // Find connected points
-            bool foundConnection = true;
-            while (foundConnection)
-            {
-                foundConnection = false;
-                
-                for (int i = remainingPoints.Count - 1; i >= 0; i--)
-                {
-                    Vector2 testPoint = remainingPoints[i];
-                    
-                    bool isConnected = false;
-                    foreach (Vector2 segmentPoint in currentSegment)
-                    {
-                        if (Vector2.Distance(testPoint, segmentPoint) <= wallConnectionDistance)
-                        {
-                            isConnected = true;
-                            break;
-                        }
-                    }
-                    
-                    if (isConnected)
-                    {
-                        currentSegment.Add(testPoint);
-                        remainingPoints.RemoveAt(i);
-                        foundConnection = true;
-                    }
-                }
-            }
-            
-            segments.Add(currentSegment);
-        }
-        
-        return segments;
-    }
-    
-    private void CreateWallLineSegmentInCone(List<Vector2> points)
-    {
-        // Create lines between consecutive points
-        for (int i = 0; i < points.Count - 1; i++)
-        {
-            CreateLineBetweenPoints(points[i], points[i + 1]);
-        }
-        
-        // Add glow points
-        foreach (Vector2 point in points)
-        {
-            CreateWallGlowPoint(point);
-        }
-    }
-    
-    private void CreateLineBetweenPoints(Vector2 start, Vector2 end)
-    {
-        GameObject lineObj = new GameObject("WallLine");
-        lineObj.transform.SetParent(displayPanel, false);
-        
-        RectTransform lineRect = lineObj.AddComponent<RectTransform>();
-        lineObj.AddComponent<CanvasRenderer>();
-        Image lineImage = lineObj.AddComponent<Image>();
-        
-        lineImage.color = wallLineColor;
-        
-        Vector2 direction = (end - start).normalized;
-        float distance = Vector2.Distance(start, end);
-        Vector2 center = (start + end) * 0.5f;
-        
-        lineRect.anchorMin = Vector2.one * 0.5f;
-        lineRect.anchorMax = Vector2.one * 0.5f;
-        lineRect.anchoredPosition = center;
-        lineRect.sizeDelta = new Vector2(wallLineWidth, distance);
-        
-        float angle = Mathf.Atan2(direction.x, direction.y) * Mathf.Rad2Deg;
-        lineRect.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
-        
-        activeWallLines.Add(lineObj);
-    }
-    
-    private void CreateWallGlowPoint(Vector2 position)
-    {
-        if (contactPrefab == null) return;
-        
-        GameObject glowPoint = Instantiate(contactPrefab, displayPanel);
-        RectTransform glowRect = glowPoint.GetComponent<RectTransform>();
-        Image glowImage = glowPoint.GetComponent<Image>();
-        
-        if (glowRect != null)
-        {
-            glowRect.anchoredPosition = position;
-            glowRect.sizeDelta = Vector2.one * 4f; // Smaller glow points
-        }
-        
-        if (glowImage != null)
-        {
-            glowImage.color = new Color(wallLineColor.r, wallLineColor.g, wallLineColor.b, 0.6f);
-        }
-        
-        activeWallLines.Add(glowPoint);
-    }
-    
-    private void CreateSingleWallPointInCone(Vector2 position)
-    {
-        if (contactPrefab == null) return;
-        
-        GameObject contactUI = Instantiate(contactPrefab, displayPanel);
-        RectTransform contactRect = contactUI.GetComponent<RectTransform>();
-        Image contactImage = contactUI.GetComponent<Image>();
-        
-        if (contactRect != null)
-        {
-            contactRect.anchoredPosition = position;
-        }
-        
-        if (contactImage != null)
-        {
-            contactImage.color = terrainContactColor;
-        }
-        
-        activeWallLines.Add(contactUI);
     }
     
     private Color GetContactColor(string contactType)
@@ -525,7 +387,6 @@ public class ConicSonarDisplay : MonoBehaviour
       
       // Lists to track which contacts have been revealed
       List<SubmarineSonar.SonarContact> revealedContacts = new List<SubmarineSonar.SonarContact>();
-      List<SubmarineSonar.SonarContact> revealedWalls = new List<SubmarineSonar.SonarContact>();
       
       while (elapsedTime < sweepDuration)
       {
@@ -543,31 +404,6 @@ public class ConicSonarDisplay : MonoBehaviour
               {
                   AddContactToCone(contact);
                   revealedContacts.Add(contact);
-              }
-          }
-          
-          // Reveal wall contacts
-          foreach (var wallContact in wallContactsToProcess)
-          {
-              if (!revealedWalls.Contains(wallContact) && wallContact.bearing <= currentAngle)
-              {
-                  revealedWalls.Add(wallContact);
-              }
-          }
-          
-          // Update wall visualization when new wall points are revealed
-          if (revealedWalls.Count > 0)
-          {
-              // Clear existing wall lines and recreate with revealed points
-              foreach (var line in activeWallLines)
-              {
-                  if (line != null) Destroy(line);
-              }
-              activeWallLines.Clear();
-              
-              if (revealedWalls.Count > 0)
-              {
-                  CreateWallLinesInCone(revealedWalls);
               }
           }
           
@@ -598,12 +434,6 @@ public class ConicSonarDisplay : MonoBehaviour
             if (contact != null) Destroy(contact);
         }
         activeContacts.Clear();
-        
-        foreach (var line in activeWallLines)
-        {
-            if (line != null) Destroy(line);
-        }
-        activeWallLines.Clear();
     }
     
     private void SetDisplayActive(bool active)
