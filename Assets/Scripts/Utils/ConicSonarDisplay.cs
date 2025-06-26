@@ -253,9 +253,9 @@ public class ConicSonarDisplay : MonoBehaviour
             }
         }
         
-        // Sort contacts by bearing (left to right) for progressive reveal since we sweep from right to left
-        pendingContacts = pendingContacts.OrderBy(c => c.bearing).ToList();
-        wallContactsToProcess = wallContactsToProcess.OrderBy(c => c.bearing).ToList();
+        // Sort contacts by bearing (right to left) for progressive reveal as sweep moves from right to left
+        pendingContacts = pendingContacts.OrderByDescending(c => c.bearing).ToList();
+        wallContactsToProcess = wallContactsToProcess.OrderByDescending(c => c.bearing).ToList();
         
         StartSweepAnimation();
         
@@ -520,8 +520,8 @@ public class ConicSonarDisplay : MonoBehaviour
       sweepLine.SetActive(true);
       
       float elapsedTime = 0f;
-      float startAngle = coneAngle * 0.5f;  // Start from right
-      float endAngle = -coneAngle * 0.5f;   // End at left
+      float startAngle = -coneAngle * 0.5f;  // Start from left
+      float endAngle = coneAngle * 0.5f;    // End at right
       
       // Lists to track which contacts have been revealed
       List<SubmarineSonar.SonarContact> revealedContacts = new List<SubmarineSonar.SonarContact>();
@@ -532,11 +532,11 @@ public class ConicSonarDisplay : MonoBehaviour
           elapsedTime += Time.deltaTime;
           float progress = elapsedTime / sweepDuration;
           
-          // Sweep from right to left across the cone
+          // Sweep from left to right across the cone
           float currentAngle = Mathf.Lerp(startAngle, endAngle, sweepCurve.Evaluate(progress));
-          sweepLine.transform.rotation = Quaternion.AngleAxis(currentAngle, Vector3.forward);
+          sweepLine.transform.rotation = Quaternion.AngleAxis(-currentAngle, Vector3.forward);
           
-          // Reveal contacts as the sweep passes over them (now sweeping right to left)
+          // Reveal contacts as the sweep passes over them (sweeping left to right)
           foreach (var contact in pendingContacts)
           {
               if (!revealedContacts.Contains(contact) && contact.bearing <= currentAngle)
