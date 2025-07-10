@@ -7,7 +7,7 @@ public class SubmarineController : MonoBehaviour
     [Header("Movement Settings")]
     public float forwardSpeed = 10f;
     public float backwardSpeed = 7f;
-    public float turnSpeed = 45f;
+    public float turnSpeed = 120f;
     public float acceleration = 5f;
     public float deceleration = 8f;
     
@@ -28,6 +28,22 @@ public class SubmarineController : MonoBehaviour
     
     [Header("Sonar System")]
     public SubmarineSonar sonarSystem;
+    
+    [Header("Collision Settings")]
+    public bool enableCollisions = true;
+    public float collisionDamping = 0.5f;
+    
+    [Header("Physics Isolation")]
+    public bool usePhysicsIsolation = true;
+    private SubmarinePhysicsIsolator physicsIsolator;
+    
+    [Header("Stabilization")]
+    public bool useStabilization = true;
+    private SubmarineStabilizer stabilizer;
+    
+    [Header("Collision Feedback")]
+    public bool useCollisionFeedback = true;
+    // private SubmarineCollisionFeedback collisionFeedback; // Se añadirá dinámicamente
     
     private Rigidbody rb;
     private Vector3 _currentForce = Vector3.zero;
@@ -60,6 +76,34 @@ public class SubmarineController : MonoBehaviour
         // Auto-find sonar system if not assigned
         if (sonarSystem == null)
             sonarSystem = GetComponent<SubmarineSonar>();
+            
+        // Configurar aislamiento de física si está habilitado
+        if (usePhysicsIsolation)
+        {
+            physicsIsolator = GetComponent<SubmarinePhysicsIsolator>();
+            if (physicsIsolator == null)
+            {
+                physicsIsolator = gameObject.AddComponent<SubmarinePhysicsIsolator>();
+                Debug.Log("[SUBMARINE] Physics Isolator added to prevent player physics interference");
+            }
+        }
+        
+        // Configurar estabilización si está habilitada
+        if (useStabilization)
+        {
+            stabilizer = GetComponent<SubmarineStabilizer>();
+            if (stabilizer == null)
+            {
+                stabilizer = gameObject.AddComponent<SubmarineStabilizer>();
+                Debug.Log("[SUBMARINE] Stabilizer added for realistic collision response");
+            }
+        }
+        
+        // El sistema de feedback se configurará automáticamente con SubmarineSetup
+        if (useCollisionFeedback)
+        {
+            Debug.Log("[SUBMARINE] Collision feedback will be configured by SubmarineSetup");
+        }
     }
     
     private void ConfigureRigidbody()
@@ -70,10 +114,29 @@ public class SubmarineController : MonoBehaviour
         rb.angularDamping = angularDrag;
         rb.useGravity = false;
         
-        // Freeze Y movement and X/Z rotation (submarine stays horizontal)
-        rb.constraints = RigidbodyConstraints.FreezePositionY | 
-                        RigidbodyConstraints.FreezeRotationX | 
-                        RigidbodyConstraints.FreezeRotationZ;
+        // MUY IMPORTANTE: No hacer kinematic para permitir colisiones
+        rb.isKinematic = false;
+        
+        // Si usamos estabilización, permitir todas las rotaciones
+        // Si no, mantener el submarino horizontal
+        if (useStabilization)
+        {
+            rb.constraints = RigidbodyConstraints.None;
+        }
+        else
+        {
+            rb.constraints = RigidbodyConstraints.FreezePositionY | 
+                            RigidbodyConstraints.FreezeRotationX | 
+                            RigidbodyConstraints.FreezeRotationZ;
+        }
+        
+        // Enable collision detection
+        if (enableCollisions)
+        {
+            rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+        }
+        
+        Debug.Log($"[SUBMARINE] Rigidbody configurado - isKinematic: {rb.isKinematic}, CollisionMode: {rb.collisionDetectionMode}");
     }
     
     public void ProcessCommand(SubmarineInput input)
@@ -279,5 +342,36 @@ public class SubmarineController : MonoBehaviour
     public bool CanUseSonar()
     {
         return sonarSystem != null && sonarSystem.CanPing && (Time.time - lastSonarCommandTime >= SONAR_COMMAND_COOLDOWN);
+    }
+    
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (!enableCollisions) return;
+        
+        float collisionForce = collision.relativeVelocity.magnitude;
+        
+        if (collisionForce > 2f)
+        {
+            Debug.Log($"[SUBMARINE] Collision with {collision.gameObject.name}, force: {collisionForce}");
+            
+            // Apply damping to reduce bounce
+            Vector3 dampingForce = -rb.linearVelocity * collisionDamping;
+            rb.AddForce(dampingForce, ForceMode.VelocityChange);
+            
+            // El stabilizer manejará la respuesta de rotación
+            if (stabilizer != null)
+            {
+                stabilizer.OnCollisionEnter(collision);
+            }
+        }
+    }
+    
+    private void OnCollisionStay(Collision collision)
+    {
+        if (!enableCollisions) return;
+        
+        // Continuous damping while in contact
+        Vector3 dampingForce = -rb.linearVelocity * collisionDamping * 0.1f;
+        rb.AddForce(dampingForce, ForceMode.Force);
     }
 }

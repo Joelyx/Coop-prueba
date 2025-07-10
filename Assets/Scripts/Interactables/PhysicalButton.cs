@@ -130,6 +130,10 @@ public class PhysicalButton : MonoBehaviour
         if (isPressed && submarineController != null)
         {
             float intensity = Mathf.InverseLerp(originalPosition.y, pressedPosition.y, currentY);
+            if (buttonCommand == SubmarineCommand.TurnLeft || buttonCommand == SubmarineCommand.TurnRight)
+            {
+                intensity = Mathf.Clamp(intensity, 0.1f, 5f); // Ensure minimum intensity for turning
+            }
             SubmarineInput input = new SubmarineInput(buttonCommand, intensity, Time.fixedDeltaTime);
             submarineController.ProcessCommand(input);
         }
@@ -148,6 +152,7 @@ public class PhysicalButton : MonoBehaviour
             audioSource.PlayOneShot(pressSound);
             
         // Create submarine input
+        
         SubmarineInput input = new SubmarineInput(buttonCommand, 1f, 0.1f);
         OnButtonPressed?.Invoke(input);
         
@@ -234,6 +239,10 @@ public class PhysicalButton : MonoBehaviour
         if (isPressed && submarineController != null)
         {
             SubmarineInput input = new SubmarineInput(buttonCommand, 1f, Time.fixedDeltaTime);
+            if (buttonCommand == SubmarineCommand.TurnLeft || buttonCommand == SubmarineCommand.TurnRight)
+            {
+                input.intensity = 1f;
+            }
             submarineController.ProcessCommand(input);
         }
     }

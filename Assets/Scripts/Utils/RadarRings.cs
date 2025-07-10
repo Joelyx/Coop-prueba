@@ -147,8 +147,40 @@ public class RadarRings : MonoBehaviour
     
     Sprite GetCircleSprite()
     {
-        // Use Unity's built-in circle sprite
-        return Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
+        // Try to get Unity's built-in circle sprite, fallback to creating one
+        Sprite circleSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
+        
+        if (circleSprite == null)
+        {
+            // Fallback: Use Unity's default UI sprite
+            circleSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
+            
+            if (circleSprite == null)
+            {
+                // Final fallback: Create a simple white texture
+                Debug.LogWarning("[RADAR RINGS] Using fallback sprite - built-in UI sprites not found");
+                return CreateFallbackCircleSprite();
+            }
+        }
+        
+        return circleSprite;
+    }
+    
+    Sprite CreateFallbackCircleSprite()
+    {
+        // Create a simple white square texture as fallback
+        Texture2D texture = new Texture2D(64, 64);
+        Color[] pixels = new Color[64 * 64];
+        
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = Color.white;
+        }
+        
+        texture.SetPixels(pixels);
+        texture.Apply();
+        
+        return Sprite.Create(texture, new Rect(0, 0, 64, 64), Vector2.one * 0.5f);
     }
     
     void OnValidate()
